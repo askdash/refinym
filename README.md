@@ -23,5 +23,5 @@ To extract clusters in a given solution use the CLI:
 
 To rewrite a project with the refined types, given a clustering in `clusterings.json`, run the CLI with:
 ```
-TODO
+./SubtypeMiningConsole.exe rewrite <PathToSln> <repositoryPath> <gitHubLink> <SerializedClustersJSON> <typeThasWasRefined>
 ```

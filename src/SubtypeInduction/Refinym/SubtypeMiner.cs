@@ -125,9 +125,7 @@ namespace SubtypeInduction.TypeSystemRels
 
             IEnumerable<KeyValuePair<AbstractNode, HashSet<AbstractNode>>> nodes_sourcefiltered =
                 relationships.Where(kv => CheckAbstractNodeInType(kv.Key, t));
-
-            //var nodes_sourcefiltered = relationships;
-
+            
             IEnumerable<KeyValuePair<AbstractNode, HashSet<AbstractNode>>> nodes_sinkfiltered =
                 nodes_sourcefiltered.Select(kv =>
                     new KeyValuePair<AbstractNode, HashSet<AbstractNode>>(
@@ -224,8 +222,7 @@ namespace SubtypeInduction.TypeSystemRels
                 {
                     var project = solution.GetProject(projectId);
                     if (project.FilePath.ToLower().Contains("test")
-                        || !(project.FilePath.ToLower().Contains(".csproj"))
-                        || project.FilePath.ToLower().Contains("Quartz.Web"))
+                        || !(project.FilePath.ToLower().EndsWith(".csproj")))
                     {
                         Console.WriteLine($"Excluding {project.FilePath} since it seems to be test-related");
                         continue;
@@ -283,9 +280,9 @@ namespace SubtypeInduction.TypeSystemRels
                         break;
 
                     case AnalysisType.RewritingFromSerialization:
-                        var rewritingFromSerilisationResults_path = "results/" + "rewritingFromSerialised/" + basePath.Substring(basePath.LastIndexOf('\\') + 1);
+                        var rewritingFromSerializationResults_path = "results/" + "rewritingFromSerialised/" + basePath.Substring(basePath.LastIndexOf('\\') + 1);
                         Console.WriteLine("Starting rewriting of builtin type uses after reading in serilised clusterings...");
-                        EvaluateOnBuiltIns(compilations, pathProcessor, typeRelations, rewritingFromSerilisationResults_path, true,
+                        EvaluateOnBuiltIns(compilations, pathProcessor, typeRelations, rewritingFromSerializationResults_path, true,
                             basePath.Substring(basePath.LastIndexOf('\\') + 1));
                         break;
 
@@ -296,6 +293,62 @@ namespace SubtypeInduction.TypeSystemRels
             Console.WriteLine("Done!");
         }
 
+        public static void Rewrite(string basePath, string githubBaseLink, Solution solution,
+            string serializedClustersFile, string targetTypeName)
+        {
+            Func<string, int, string> pathProcessor = (fullPath, lineNumber) =>
+            {
+                var relativePath = fullPath.Substring(basePath.Length);
+                return githubBaseLink + relativePath.Replace('\\', '/') + "#L" + (lineNumber + 1);
+            };
+
+            Console.WriteLine("Collecting type constraint graph...");
+            var typeRelations = new TypeConstraints(pathProcessor);
+
+            var projectGraph = solution.GetProjectDependencyGraph();
+            UDCTree UDCHierarchy = new UDCTree();
+            var compilations = new List<CSharpCompilation>();
+
+            foreach (var projectId in projectGraph.GetTopologicallySortedProjects())
+            {
+                Compilation compilation;
+                try
+                {
+                    var project = solution.GetProject(projectId);
+                    if (project.FilePath.ToLower().Contains("test")
+                        || !(project.FilePath.ToLower().EndsWith(".csproj")))
+                    {
+                        Console.WriteLine($"Excluding {project.FilePath} since it seems to be test-related");
+                        continue;
+                    }
+                    compilation = project.GetCompilationAsync().Result;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine("Exception while compiling project {0}: {1}", projectId, ex);
+                    continue;
+                }
+                if (compilation == null) continue;
+                foreach (var error in compilation.GetDiagnostics().Where(d => d.Severity == DiagnosticSeverity.Error))
+                {
+                    Console.WriteLine(error.GetMessage());
+                }
+                if (compilation is CSharpCompilation cSharpCompilation)
+                {
+                    UDCHierarchy.ParseTypesInCompilation(cSharpCompilation);
+                    typeRelations.AddFromCompilation(cSharpCompilation);
+                    compilations.Add(cSharpCompilation);
+                }
+            }
+
+            Console.WriteLine("Starting rewriting of builtin type uses after reading in serialized clusterings...");
+            RewriterFromJson rJson = new RewriterFromJson(serializedClustersFile, basePath, typeRelations);
+            var r = new Rewriter(compilations, rJson.Clusters, rJson.AncestorMap, targetTypeName);
+
+            r.RewriteTypes();
+            string errors = JsonConvert.SerializeObject(r.ErrorHistogram, Formatting.Indented);
+            Console.WriteLine(errors);
+        }
 
         public static void EvaluateOnBuiltIns(
             List<CSharpCompilation> compilations, Func<string, int, string> pathProcessor,
@@ -352,7 +405,7 @@ namespace SubtypeInduction.TypeSystemRels
                 r = new Rewriter(compilations, results.MiningResults.First().clusteringResult, results.MiningResults.First().ancestorMap, typename);
             }
 
-            r.rewriteTypes();
+            r.RewriteTypes();
             string errors = JsonConvert.SerializeObject(r.ErrorHistogram, Formatting.Indented);
             try
             {

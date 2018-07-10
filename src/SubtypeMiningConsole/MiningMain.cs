@@ -13,7 +13,7 @@ namespace SubtypeInduction.TypeSystemRels
             if (args.Length < 5)
             {
                 Console.WriteLine("Usage cluster <PathToSln> <repositoryPath> <gitHubLink> <OutputFileName> <typeToCluster>");
-                Console.WriteLine("Usage rewrite <PathToSln> <repositoryPath> <gitHubLink> <OutputFileName>");
+                Console.WriteLine("Usage rewrite <PathToSln> <repositoryPath> <gitHubLink> <SerializedClustersJSON> <typeThasWasRefined>");
                 return;
             }
             
@@ -32,8 +32,7 @@ namespace SubtypeInduction.TypeSystemRels
                     ClusteringExtractor.ExtractFromSolution(args[2], args[3], solution, args[4], args[5]);
                     break;
                 case "rewrite":
-                    // TODO(Santanu): Fix operations here
-                    SubtypeMiner.ExtractFromSolution(args[1], args[2], solution);
+                    SubtypeMiner.Rewrite(args[2], args[3], solution, args[4], args[5]);
                     break;
                 default:
                     throw new Exception($"Unrecognized option {args[0]}");

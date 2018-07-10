@@ -15,13 +15,13 @@ namespace SubtypeInduction.TypeSystemRels
 
     class Rewriter
     {
-        private List<CSharpCompilation> _compilations;
-        private List<HashSet<AbstractNode>> _clusters;
+        private readonly List<CSharpCompilation> _compilations;
+        private readonly List<HashSet<AbstractNode>> _clusters;
         private RewriteWalker rewriteWalker;
         private TypeCaster typeCaster;
         public List<string> classDeclarations;
-        Dictionary<int, List<int>> _ancestorMap;
-        string _typename;
+        private readonly Dictionary<int, List<int>> _ancestorMap;
+        private readonly string _typename;
         public Dictionary<string, List<Tuple<Diagnostic, string>>> ErrorHistogram { get; set; }
             = new Dictionary<string, List<Tuple<Diagnostic, string>>>();
 
@@ -40,11 +40,11 @@ namespace SubtypeInduction.TypeSystemRels
             int clusterID = 0;
             foreach (var colors in _clusters)
             {
-                classDeclarations.Add(getClusterAsClassDecl(clusterID, ancestorMap[clusterID++]));
+                classDeclarations.Add(GetClusterAsClassDecl(clusterID, ancestorMap[clusterID++]));
             }
         }
 
-        private string getClusterAsClassDecl(int clusterID, List<int> ancestorIDs)
+        private string GetClusterAsClassDecl(int clusterID, List<int> ancestorIDs)
         {
             string className = "Cluster" + clusterID.ToString();
             var preface = string.Format(@"
@@ -67,7 +67,7 @@ public class {0}
             return preface + postface;
         }
 
-        public void rewriteTypes()
+        public void RewriteTypes()
         {
             string namespaceDescription = @"namespace BespokeLattice {\n" + string.Join("\n", classDeclarations) + "\n};\n";
 
@@ -174,10 +174,9 @@ public class {0}
             {
                 foreach (var node in color)
                 {
-                    if (node is MethodReturnSymbol)
+                    if (node is MethodReturnSymbol returnSymbol)
                     {
-                        MethodReturnSymbol s = (MethodReturnSymbol)node;
-                        _methodRewrites[s.Symbol.DeclaringSyntaxReferences.First().GetSyntax()] = clusterID;
+                        _methodRewrites[returnSymbol.Symbol.DeclaringSyntaxReferences.First().GetSyntax()] = clusterID;
                     }
                     else if (node is VariableSymbol s)
                     {
@@ -207,11 +206,10 @@ public class {0}
 
         public override SyntaxNode VisitMethodDeclaration(MethodDeclarationSyntax node)
         {
-            int clusterID;
             var method = SemanticModel.GetDeclaredSymbol(node);
             if (method.ExplicitInterfaceImplementations != null) return base.VisitMethodDeclaration(node);
 
-            if (_methodRewrites.TryGetValue(node, out clusterID))
+            if (_methodRewrites.TryGetValue(node, out int clusterID))
             {
                 SyntaxNode n = node.WithReturnType(SyntaxFactory.ParseTypeName("Cluster" + clusterID.ToString()));
                 Rewrote = true;
@@ -223,16 +221,13 @@ public class {0}
 
         public override SyntaxNode VisitVariableDeclaration(VariableDeclarationSyntax node)
         {
-            int clusterID;
-            if (node.Parent is LocalDeclarationStatementSyntax)
+            if (node.Parent is LocalDeclarationStatementSyntax localDeclarationStatement)
             {
-                var n = node.Parent as LocalDeclarationStatementSyntax;
-                if (n.Modifiers.Any(SyntaxKind.ConstKeyword)) return base.VisitVariableDeclaration(node);
+                if (localDeclarationStatement.Modifiers.Any(SyntaxKind.ConstKeyword)) return base.VisitVariableDeclaration(node);
             }
-            else if (node.Parent is FieldDeclarationSyntax)
+            else if (node.Parent is FieldDeclarationSyntax fieldDeclaration)
             {
-                var n = node.Parent as FieldDeclarationSyntax;
-                if (n.Modifiers.Any(SyntaxKind.ConstKeyword)) return base.VisitVariableDeclaration(node);
+                if (fieldDeclaration.Modifiers.Any(SyntaxKind.ConstKeyword)) return base.VisitVariableDeclaration(node);
             }
             /*else if (node.Parent is PropertyDeclarationSyntax)
             {
@@ -243,7 +238,7 @@ public class {0}
             {
                 return base.VisitVariableDeclaration(node);
             }
-            if (_variableRewrites.TryGetValue(node, out clusterID))
+            if (_variableRewrites.TryGetValue(node, out int clusterID))
             {
                 SyntaxNode n = node.WithType(SyntaxFactory.ParseTypeName("Cluster" + clusterID.ToString()));
                 Rewrote = true;
@@ -255,9 +250,9 @@ public class {0}
 
         public override SyntaxNode VisitParameter(ParameterSyntax node)
         {
-            if (node.Parent.Parent is MethodDeclarationSyntax)
+            if (node.Parent.Parent is MethodDeclarationSyntax methodDeclaration)
             {
-                var method = SemanticModel.GetDeclaredSymbol(node.Parent.Parent as MethodDeclarationSyntax);
+                var method = SemanticModel.GetDeclaredSymbol(methodDeclaration);
                 if (method.ExplicitInterfaceImplementations != null) return base.VisitParameter(node);
             }
 
@@ -265,7 +260,6 @@ public class {0}
 
             if (kind != RefKind.Ref && kind != RefKind.Out)
             {
-
                 if (_variableRewrites.TryGetValue(node, out int clusterID) && !node.Modifiers.Contains(SyntaxFactory.Token(SyntaxKind.RefKeyword)))
                 {
                     TypeSyntax type = SyntaxFactory.ParseTypeName("Cluster" + clusterID.ToString());
@@ -295,7 +289,7 @@ public class {0}
     public class TypeCaster : CSharpSyntaxRewriter
     {
         public SemanticModel SemanticModel { get; set; }
-        private string _typename;
+        private readonly string _typename;
 
         public TypeCaster(string typename)
         {
@@ -322,8 +316,7 @@ public class {0}
 
         public override SyntaxNode VisitElementAccessExpression(ElementAccessExpressionSyntax node)
         {
-            var type = SemanticModel.GetTypeInfo(node.Expression).Type as ITypeSymbol;
-            if (type != null && type.IsReferenceType && type.Name.Contains("Cluster"))
+            if (SemanticModel.GetTypeInfo(node.Expression).Type is ITypeSymbol type && type.IsReferenceType && type.Name.Contains("Cluster"))
             {
                 return node.WithExpression(
                     SyntaxFactory.MemberAccessExpression(
